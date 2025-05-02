@@ -38,7 +38,7 @@ get_json \
 ```
 
 ```
-get_json "Getting single user" \  # message
+get_json "Getting single user" \  # Message
     http://localhost/users/12 \   # URL
     200 \                         # Expected status
     '{"id":12, "name":"Athena"}'  # Expected response
@@ -58,8 +58,9 @@ post_json \
 ```
 
 ```
-post_json "Adding single user" \  # message
+post_json "Adding single user" \  # Message
     http://localhost/users \      # URL
+    '{"name": "Athena"}` \        # Payload
     201 \                         # Expected status
     '{"status": "ok"}'            # Expected response
 ```

@@ -1,0 +1,106 @@
+<h1>Simple cURL testing scripts</h1>
+<p>POSIX shell scripts for testing HTTP API endpoints with cURL.</p>
+<p>Installing <a href="https://jqlang.org/"><code>jq</code></a> is required to get testing to
+fully work.</p>
+<p><strong>WIP.</strong> You can use this, but you can't complain about it. 😊</p>
+<h2>Bugs</h2>
+<ul>
+<li>
+<p>This isn't a particularly strict testing framework and you might get
+false positives or negatives if you're not careful. See the
+<a href="#comparisons">Comparisons</a> section, below.</p>
+</li>
+<li>
+<p>The <code>jq</code> scripts aren't well-tested. Might be fragile.</p>
+</li>
+</ul>
+<h2>Usage</h2>
+<p>Source it into your driver script.</p>
+<pre><code>. ./curltest.sh
+</code></pre>
+<h2>Functions</h2>
+<h3><code>get_json</code></h3>
+<p>Perform a <code>GET</code> request with a JSON response.</p>
+<pre><code>get_json \
+    message \
+    URL \
+    expected_code \
+    expected_response
+</code></pre>
+<pre><code>get_json &quot;Getting single user&quot; \  # message
+    http://localhost/users/12 \   # URL
+    200 \                         # Expected status
+    '{&quot;id&quot;:12, &quot;name&quot;:&quot;Athena&quot;}'  # Expected response
+</code></pre>
+<h3><code>post_json</code></h3>
+<p>Perform a <code>POST</code> JSON request with a JSON response.</p>
+<pre><code>post_json \
+    message \
+    URL \
+    payload \
+    expected_code \
+    expected_response
+</code></pre>
+<pre><code>post_json &quot;Adding single user&quot; \  # message
+    http://localhost/users \      # URL
+    201 \                         # Expected status
+    '{&quot;status&quot;: &quot;ok&quot;}'            # Expected response
+</code></pre>
+<h2><code>extract_field</code></h2>
+<p>Simple interface for trying to pull a field name out of the response.</p>
+<pre><code>extract_field property
+</code></pre>
+<pre><code># response: {&quot;id&quot;: 12, &quot;name&quot;: &quot;foo&quot;}
+
+id_value=$(extract field &quot;id&quot;)
+
+echo $id_value   # 12
+</code></pre>
+<h2><code>jq_query</code></h2>
+<p>Run a <code>jq</code> query on the most recent response.</p>
+<pre><code>jq_query query
+</code></pre>
+<pre><code>jq_query '.[2].name'   # name property of array element 2
+
+x=$(jq_query '.[2].name')   # assignment to x
+</code></pre>
+<h2><code>jq_pp</code>, <code>jq_ppc</code></h2>
+<p>Use <code>jq</code> to pretty print, or pretty-print compactly.</p>
+<pre><code>jq_pp json
+jq_ppc json
+</code></pre>
+<pre><code>jq_pp '{
+    &quot;foo&quot;: &quot;bar&quot;}'
+
+jq_ppc '{
+    &quot;foo&quot;: &quot;bar&quot;}'
+</code></pre>
+<h2>Variables</h2>
+<p>Getters:</p>
+<ul>
+<li><code>request</code>: contains the most recent request</li>
+<li><code>response</code>: contains the most recent response</li>
+<li><code>http_status</code>: contains the most recent HTTP response code</li>
+</ul>
+<p>Setters:</p>
+<ul>
+<li><code>show_request</code>: if non-zero, the request payload is printed with each
+POST request.</li>
+<li><code>show_response</code>: if non-zero, the response payload is printed with
+each request.</li>
+</ul>
+<h2>Comparisons</h2>
+<p>JSON comparisons are done with <code>jq</code>.</p>
+<p>The order of the properties in the object doesn't matter.</p>
+<p>Regexes can be used in strings.</p>
+<p>Missing fields are ignored (i.e. expected results can be a subset of
+actual results and still pass).</p>
+<p>When matching arrays, all elements of the result array should match the
+pattern in the expected array. For example, this will match true if all
+elements in the response match the expected pattern:</p>
+<pre><code>[{&quot;name&quot;: &quot;foo.*&quot;}]
+</code></pre>
+<p>That is, it will succeed if the result is an array where all elements
+have a <code>name</code> property that starts with <code>foo</code>.</p>
+<h2>Example Driver</h2>
+<p>See <a href="curltest_example.sh"><code>curltest_example.sh</code></a></p>

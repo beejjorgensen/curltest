@@ -39,7 +39,6 @@ printf "HTTP status: %s\n" "$http_status"
 printf "Request: %s\n" "$request"
 printf "Response: %s\n" "$response"
 
-    exit 0
 # ---------------------------------------------------------
 
 request_json "Getting existent message" GET $URL/messages/$id "" \

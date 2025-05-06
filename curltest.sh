@@ -1,12 +1,16 @@
-CT_YELLOW=$(tput setaf 3; tput bold)
-CT_WHITE=$(tput setaf 7; tput bold)
-CT_RED=$(tput setaf 1; tput bold)
-CT_GREEN=$(tput setaf 2)
-CT_RESET=$(tput sgr0)
-
-warning() {
-    printf "%s%s: %s%s\n" "$CT_RED" "$(basename $0)" "$*" "$CT_RESET" 1>&2
-}
+if command -v tput > /dev/null; then
+    CT_YELLOW=$(tput setaf 3; tput bold)
+    CT_WHITE=$(tput setaf 7; tput bold)
+    CT_RED=$(tput setaf 1; tput bold)
+    CT_GREEN=$(tput setaf 2)
+    CT_RESET=$(tput sgr0)
+else
+    CT_YELLOW=""
+    CT_WHITE=""
+    CT_RED=""
+    CT_GREEN=""
+    CT_RESET=""
+fi
 
 show_response=0
 show_request=0
@@ -53,6 +57,10 @@ clean() {
 }
 
 trap clean EXIT
+
+warning() {
+    printf "%s%s: %s%s\n" "$CT_RED" "$(basename $0)" "$*" "$CT_RESET" 1>&2
+}
 
 jq_pp_internal() {
     local json="$1"

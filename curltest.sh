@@ -188,6 +188,10 @@ test_expected () {
 test_code() {
     local actual="$1"
     local expected="$2"
+    
+    if [ -z "$expected" ]; then
+        return 0
+    fi
 
     if [ "$actual" -eq "$expected" ]; then
         printf "%s✓ PASS: status %s%s\n" "$CT_GREEN" "$actual" "$CT_RESET"

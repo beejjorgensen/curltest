@@ -3,7 +3,7 @@
 POSIX shell scripts for testing HTTP API endpoints with cURL.
 
 Installing [`jq`](https://jqlang.org/) is required to get testing to
-fully work.
+fully work. Standard packages exist for most Unices.
 
 **WIP.** You can use this, but you can't complain about it. 😊
 

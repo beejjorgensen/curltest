@@ -47,16 +47,16 @@ request_json \
 
 ```
 request_json "Getting single user" \  # Message
-    GET                               # Method
+    GET \                             # Method
     http://localhost/users/12 \       # URL
-    ""                                # Payload (ignored for GET)
+    "" \                              # Payload (ignored for GET)
     200 \                             # Expected status
     '{"id":12, "name":"Athena"}'      # Expected response
 ```
 
 ```
 request_json "Getting single user" \  # Message
-    POST                              # Method
+    POST \                            # Method
     http://localhost/users \          # URL
     '{"name": "Athena"}` \            # Payload
     201 \                             # Expected status

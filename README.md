@@ -25,32 +25,15 @@ Source it into your driver script.
 
 ## Functions
 
-### `get_json`
+### `request_json()`
 
-Perform a `GET` request with a JSON response.
+Perform a request with a JSON payload and expected response. Tests that
+the response is the same.
 
 ```
-get_json \
+request_json \
     message \
-    URL \
-    expected_code \
-    expected_response
-```
-
-```
-get_json "Getting single user" \  # Message
-    http://localhost/users/12 \   # URL
-    200 \                         # Expected status
-    '{"id":12, "name":"Athena"}'  # Expected response
-```
-
-### `post_json`
-
-Perform a `POST` JSON request with a JSON response.
-
-```
-post_json \
-    message \
+    method \
     URL \
     payload \
     expected_code \
@@ -58,11 +41,35 @@ post_json \
 ```
 
 ```
-post_json "Adding single user" \  # Message
-    http://localhost/users \      # URL
-    '{"name": "Athena"}` \        # Payload
-    201 \                         # Expected status
-    '{"status": "ok"}'            # Expected response
+request_json "Getting single user" \  # Message
+    GET                               # Method
+    http://localhost/users/12 \       # URL
+    ""                                # Payload (ignored for GET)
+    200 \                             # Expected status
+    '{"id":12, "name":"Athena"}'      # Expected response
+```
+
+```
+request_json "Getting single user" \  # Message
+    POST                              # Method
+    http://localhost/users \          # URL
+    '{"name": "Athena"}` \            # Payload
+    201 \                             # Expected status
+    '{"status": "ok"}'                # Expected response
+```
+
+### `request()`
+
+Generic interface for testing requests and responses
+
+```
+request "Posting non-json" \          # Message
+    POST                              # Method
+    http://localhost/whatever         # URL
+    "text/plain"                      # Content-Type
+    "Hey, this is some content"       # Payload
+    201                               # Expected status
+    "Ok, this is the reply"           # Expected response
 ```
 
 ## `extract_field`
@@ -129,7 +136,9 @@ Setters:
 
 ## Comparisons
 
-JSON comparisons are done with `jq`.
+JSON comparisons are done with `jq`. This is the default for
+`request_json()` and when `request()` is called with content type
+`application/json`.
 
 The order of the properties in the object doesn't matter.
 

@@ -127,19 +127,42 @@ extract_field() {
 }
 
 test_expected () {
-    local expected="$1"
-    local infile="$2"
+    # [-j] actualfile expected
+
+    local expected actualfile json_compare=0
+    local pass
+
+    while [ $# -gt 0 ]; do
+        if [ "$1" = "-j" ]; then
+            json_compare=1
+        elif [ -z "$expected" ]; then
+            expected="$1"
+        elif [ -z "$actualfile" ]; then
+            actualfile="$1"
+        else
+            printf "usage: text_expected [-j] expected actualfile\n" >&2
+            return 1
+        fi
+        shift
+    done
 
     if [ -z "$expected" ]; then
         return 0
     fi
 
     if [ $hasjq -ne 1 ]; then
-        warning "jq not found; testing disabled"
-        return 2
+        warning "jq not found; attempting plain text match"
     fi
 
-    if jq -e --argjson expected "$expected" "$jq_matcher" < "$infile" > /dev/null; then
+    if [ $json_compare -ne 0 ]; then
+        # JSON compare
+        jq -e --argjson expected "$expected" "$jq_matcher" < "$actualfile" > /dev/null
+    else
+        # Plain text compare
+        printf "%s" "$expected" | diff -q -b - "$actualfiile" > /dev/null
+    fi
+
+    if [ $? -eq 0 ]; then
         printf "%s✓ PASS: output correct%s\n" "$CT_GREEN" "$CT_RESET"
         return 0
     else
@@ -170,36 +193,40 @@ show_output() {
     fi
 }
 
-get_json() {
-    local msg="$1"
-    local url="$2"
-    local code="$3"
-    local expected="$4"
-
-    status "$msg" "GET $url"
-
-    http_status=$(curl -s "$url" -o "$tempfile" -w '%{http_code}')
-
-    if [ $? -ne 0 ]; then
-        warning "curl failed--is the server running?"
-    fi
-
-    show_output
-
-    test_code "$http_status" "$code"
-    test_expected "$expected" "$tempfile"
-}
-
-post_json() {
+request() {
     local message="$1"
-    local url="$2"
-    local payload="$3"
-    local code="$4"
-    local expected="$5"
+    local method="$2"
+    local url="$3"
+    local content_type="$4"
+    local payload="$5"
+    local code="$6"
+    local expected="$7"
+
+    local json_test_flag contentarg payloadarg
 
     request="$payload"
 
-    status "$message" "POST $url"
+    payload_escaped=$(printf "%s" "$payload" | sed "s/'/'\\\\''/g")
+
+    method=$(printf "%s" "$method" | tr '[:lower:]' '[:upper:]')
+
+    status "$message" "$method $url"
+
+    case "$method" in
+        PUT|PATCH|DELETE)
+            methodarg="-X $method"
+            ;;
+    esac
+
+    case "$method" in
+        POST|PUT|PATCH|DELETE)
+            contentarg="-H 'Content-Type: $content_type'"
+            payloadarg="-d '$payload_escaped'"
+            ;;
+    esac
+
+    json_test_flag=""
+    test "$content_type" = "application/json" && json_test_flag="-j"
 
     if [ $show_request -ne 0 ]; then
         printf " REQUEST: "
@@ -210,16 +237,32 @@ post_json() {
         fi
     fi
 
-    http_status=$(curl -s -H "Content-Type: application/json" \
-        -d "$payload" "$url" -o "$tempfile" -w '%{http_code}')
+    cmd="curl -s $methodarg $contentarg $payloadarg '$url' -o '$tempfile' -w '%{http_code}'"
+    #echo ==============================
+    #echo $cmd
+    #echo ==============================
+    http_status=$(eval $cmd)
 
     if [ $? -ne 0 ]; then
         warning "curl failed--is the server running?"
     fi
+
     show_output
 
     test_code "$http_status" "$code"
-    test_expected "$expected" "$tempfile"
+    test_expected $json_test_flag "$expected" "$tempfile"
+}
+
+request_json() {
+    local message="$1"
+    local method="$2"
+    local url="$3"
+    local payload="$4"
+    local code="$5"
+    local expected="$6"
+
+    request "$message" "$method" "$url" "application/json" \
+        "$payload" "$code" "$expected"
 }
 
 if command -v jq > /dev/null; then

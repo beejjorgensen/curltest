@@ -55,12 +55,12 @@ request_json "Getting single user" \  # Message
 ```
 
 ```
-request_json "Getting single user" \  # Message
-    POST \                            # Method
-    http://localhost/users \          # URL
-    '{"name": "Athena"}` \            # Payload
-    201 \                             # Expected status
-    '{"status": "ok"}'                # Expected response
+request_json "Creating single user" \  # Message
+    POST \                             # Method
+    http://localhost/users \           # URL
+    '{"name": "Athena"}` \             # Payload
+    201 \                              # Expected status
+    '{"status": "ok"}'                 # Expected response
 ```
 
 ### `request()`

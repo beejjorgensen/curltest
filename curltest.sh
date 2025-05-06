@@ -12,6 +12,12 @@ else
     CT_RESET=""
 fi
 
+if command -v jq > /dev/null; then
+    hasjq=1
+else
+    hasjq=0
+fi
+
 show_response=0
 show_request=0
 
@@ -273,9 +279,3 @@ request_json() {
         "$payload" "$code" "$expected"
 }
 
-if command -v jq > /dev/null; then
-    hasjq=1
-else
-    #warning "please install \`jq\` for full testing"
-    hasjq=0
-fi

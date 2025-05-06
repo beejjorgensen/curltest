@@ -228,7 +228,7 @@ request() {
     json_test_flag=""
     test "$content_type" = "application/json" && json_test_flag="-j"
 
-    if [ $show_request -ne 0 ]; then
+    if [ $show_request -ne 0 -a ! -z "$request" ]; then
         printf " REQUEST: "
         if [ $hasjq -ne 0 ]; then
             jq_ppc "$payload"

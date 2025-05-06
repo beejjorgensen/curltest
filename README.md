@@ -7,6 +7,11 @@ fully work.
 
 **WIP.** You can use this, but you can't complain about it. 😊
 
+## Warnings
+
+* The cURL command line uses `eval` due to its complexity. Don't trust user
+  input.
+
 ## Bugs
 
 * This isn't a particularly strict testing framework and you might get

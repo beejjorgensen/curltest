@@ -1,3 +1,17 @@
+clean() {
+    rm -f "$tempfile"
+}
+
+trap clean EXIT
+
+default_content_type=""
+default_expected_code=""
+default_method=GET
+default_verbose=0
+
+total_tests=0
+total_passing=0
+
 if command -v tput > /dev/null; then
     CT_YELLOW=$(tput setaf 3; tput bold)
     CT_WHITE=$(tput setaf 7; tput bold)
@@ -18,32 +32,29 @@ else
     hasjq=0
 fi
 
-show_response=0
-show_request=0
-
 tempfile="curltest.curl.tmp.$$.out"
 
-jq_matcher='
-def deep_match($pattern; $path):
-  if ($pattern | type) == "object" then
-    . as $actual
-    | reduce ($pattern | to_entries[]) as $item (true;
-        . and (
-            ($actual | has($item.key))
-            and ($actual[$item.key] | deep_match($item.value; $path + [ $item.key ]))
-        )
-      )
-  elif ($pattern | type) == "array" then
-    . as $actual
-    | reduce $pattern[] as $subpattern (true;
-        . and ($actual | map(deep_match($subpattern; $path)) | all)
-      )
-  else
-    tostring as $actual_value
-    | $actual_value | test($pattern)
-  end;
+jq_contains_deep='
+def contains_deep(actual; expected):
+    actual as $ta | expected as $te |
+    if ($ta | type == "string") then
+        if (($te | .[0:7]) == "[REGEX]") then
+            [$ta | test($te | .[7:])]  # regex
+        else
+            [($te == "[ANY]" or $ta == $te)]  # number, boolean, or null
+        end
+    elif (($ta | type == "array") or ($ta | type == "object")) then
+        if ($te == "[ANY]") then
+            [true]
+        else
+            ($te | keys | map(contains_deep($ta[.]; $te[.])))
+        end
+    else
+        [($te == "[ANY]" or $ta == $te)]  # number, boolean, or null
+    end
+    | flatten | all;
 
-deep_match($expected; [])
+contains_deep($actual; $expected)
 '
 
 jq_extract='
@@ -58,14 +69,37 @@ def extract($key):
 extract($key)
 '
 
-clean() {
-    rm -f "$tempfile"
+dotenv() {
+    if [ $# -gt 0 ]; then
+        if [ -f "$1" ]; then
+            . "$1"
+            return 0
+        fi
+    else
+        for f in .env ../.env ../../../.env; do
+            if [ -f "$f" ]; then
+                . "$f"
+                return 0
+            fi
+        done
+    fi
+
+    warning dotenv: could not locate .env
 }
 
-trap clean EXIT
+require_jq() {
+    if [ $hasjq -eq 0 ]; then
+        warning "jq is required--install it before running tests"
+        exit 1
+    fi
+}
 
 warning() {
     printf "%s%s: %s%s\n" "$CT_RED" "$(basename $0)" "$*" "$CT_RESET" 1>&2
+}
+
+info() {
+    printf "ⓘ %s\n" "$*" 1>&2
 }
 
 jq_pp_internal() {
@@ -110,6 +144,7 @@ rep_chars() {
 }
 
 status() {
+    #echo $*; return
     local cols=$(tput cols)
     local reps=$(($cols - 1))
     local topline=$(rep_chars ═ $reps)
@@ -119,6 +154,8 @@ status() {
     printf "%s╔%s\n" "$CT_WHITE" "$topline"
 
     for m in "$@"; do
+        test -z "$m" && continue
+
         if [ $first -eq 1 ]; then
             printf "║ %s\n" "$m"
             first=0
@@ -136,7 +173,10 @@ extract_field() {
     if [ $hasjq -eq 1 ]; then
         jq -r --arg key "$json_field" "$jq_extract" < "$tempfile"
     else
-        awk -F"\"${json_field}\":\"" '{print $2}' "$tempfile" | awk -F'"' '{print $1}'
+        sed -n 's/.*"'$json_field'":"*\([^,}"]*\).*/\1/p' "$tempfile"|
+            sed 's/^ *//' |
+            sed 's/ *$//' | head -n 1
+        #awk -F"\"${json_field}\":\"" '{print $2}' "$tempfile" | awk -F'"' '{print $1}'
     fi
 }
 
@@ -164,20 +204,22 @@ test_expected () {
         return 0
     fi
 
-    if [ $hasjq -ne 1 ]; then
-        warning "jq not found; attempting plain text match"
-    fi
-
-    if [ $json_compare -ne 0 ]; then
+    if [ $hasjq -eq 1 -a $json_compare -ne 0 ]; then
         # JSON compare
-        jq -e --argjson expected "$expected" "$jq_matcher" < "$actualfile" > /dev/null
+        jq -n -e \
+            --argjson actual "$(cat $actualfile)" \
+            --argjson expected "$expected" \
+            "$jq_contains_deep" > /dev/null
     else
         # Plain text compare
-        printf "%s" "$expected" | diff -q -b - "$actualfiile" > /dev/null
+        printf "%s" "$expected" | diff -q -b - "$actualfile" > /dev/null
     fi
 
+    total_tests=$(($total_tests + 1))
+
     if [ $? -eq 0 ]; then
-        printf "%s✓ PASS: output correct%s\n" "$CT_GREEN" "$CT_RESET"
+        printf "%s✓ PASS: correct response%s\n" "$CT_GREEN" "$CT_RESET"
+        total_passing=$(($total_passing + 1))
         return 0
     else
         printf "%s! FAIL: expected %s, got %s %s\n" "$CT_RED" "$expected" "$(cat $tempfile)" "$CT_RESET"
@@ -193,34 +235,95 @@ test_code() {
         return 0
     fi
 
+    total_tests=$(($total_tests + 1))
+
     if [ "$actual" -eq "$expected" ]; then
         printf "%s✓ PASS: status %s%s\n" "$CT_GREEN" "$actual" "$CT_RESET"
+        total_passing=$(($total_passing + 1))
         return 0
     else
-        printf "%s! FAIL: expected status %s, got %s%s\n" "$CT_RED" "$expected" "$actual" "$CT_RESET"
+        printf "%s✖ FAIL: expected status %s, got %s%s\n" "$CT_RED" "$expected" "$actual" "$CT_RESET"
         return 1
     fi
 }
 
-show_output() {
+display_response() {
+    local status_code="$1"
+
     response="$(cat $tempfile)"
 
-    if [ $show_response -ne 0 ]; then
-        printf "RESPONSE: "
-        jq_ppc "$response"
-    fi
+    printf "RESPONSE (%s): " "$status_code"
+    jq_ppc "$response"
 }
 
 request() {
-    local message="$1"
-    local method="$2"
-    local url="$3"
-    local content_type="$4"
-    local payload="$5"
-    local code="$6"
-    local expected="$7"
+    local log_message url payload expected_response method token
+    local content_type="$default_content_type"
+    local expected_code="$default_expected_code"
 
-    local json_test_flag contentarg payloadarg
+    local json_test_flag methodarg contentarg payloadarg verbose
+    local autharg
+
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            -a|--auth*)
+                token="$2"
+                shift
+                ;;
+            -l|--log*-message)
+                log_message="$2"
+                shift
+                ;;
+            -m|--method)
+                method="$2"
+                shift
+                ;;
+            -c|--content-type)
+                content_type="$2"
+                shift
+                ;;
+            -p|--payload)
+                payload="$2"
+                shift
+                ;;
+            --expect*-code)
+                expected_code="$2"
+                shift
+                ;;
+            --expect*-res*)
+                expected_response="$2"
+                shift
+                ;;
+            -v|--verbose|--i-want-more-output-pretty-please)
+                verbose=1
+                ;;
+            -*)
+                warning request: unrecognized option $1
+                ;;
+            *)
+                if [ -z "$url" ]; then
+                    url="$1"
+                else
+                    warning request: already specified URL
+                fi
+        esac
+        shift
+    done
+
+    if [ -z "$url" ]; then
+        warning usage: request url [options]
+        return 1
+    fi
+
+    if [ -z "$method" ]; then
+        if [ -z "$payload" ]; then
+            method="GET"
+        else
+            method="POST"
+        fi
+    fi
+
+    url="${default_base_url}${url}"
 
     request="$payload"
 
@@ -228,7 +331,7 @@ request() {
 
     method=$(printf "%s" "$method" | tr '[:lower:]' '[:upper:]')
 
-    status "$message" "$method $url"
+    status "$log_message" "$method $url"
 
     case "$method" in
         PUT|PATCH|DELETE)
@@ -246,8 +349,8 @@ request() {
     json_test_flag=""
     test "$content_type" = "application/json" && json_test_flag="-j"
 
-    if [ $show_request -ne 0 -a ! -z "$request" ]; then
-        printf " REQUEST: "
+    if [ \( ! -z "$verbose" -o $default_verbose -eq 1 \) -a ! -z "$request" ]; then
+        printf "REQUEST: "
         if [ $hasjq -ne 0 ]; then
             jq_ppc "$payload"
         else
@@ -255,7 +358,11 @@ request() {
         fi
     fi
 
-    cmd="curl -s $methodarg $contentarg $payloadarg '$url' -o '$tempfile' -w '%{http_code}'"
+    if [ ! -z "$token" ]; then
+        autharg="-H 'Authorization: Bearer ${token}'"
+    fi
+
+    cmd="curl -s $autharg $methodarg $contentarg $payloadarg '$url' -o '$tempfile' -w '%{http_code}'"
     #echo ==============================
     #echo $cmd
     #echo ==============================
@@ -263,23 +370,33 @@ request() {
 
     if [ $? -ne 0 ]; then
         warning "curl failed--is the server running?"
+        exit 2
     fi
 
-    show_output
+    test ! -z "$verbose" -o $default_verbose -eq 1 && display_response $http_status
 
-    test_code "$http_status" "$code"
-    test_expected $json_test_flag "$expected" "$tempfile"
+    test ! -z "$expected_code" && test_code "$http_status" "$expected_code"
+    test ! -z "$expected_response" && test_expected $json_test_flag "$expected_response" "$tempfile"
 }
 
-request_json() {
-    local message="$1"
-    local method="$2"
-    local url="$3"
-    local payload="$4"
-    local code="$5"
-    local expected="$6"
+summary() {
+    local pct color
 
-    request "$message" "$method" "$url" "application/json" \
-        "$payload" "$code" "$expected"
+    status "Summary"
+
+    printf "    Total tests: %d\n" "$total_tests"
+    printf "  Passing tests: %d\n" "$total_passing"
+
+    pct=$((100 * $total_passing / $total_tests))
+    int_pct=$(printf "%d" "$pct")
+
+    if [ $int_pct -lt 90 ]; then
+        color="$CT_RED"
+    elif [ $int_pct -ge 90 -a $int_pct -lt 100 ]; then
+        color="$CT_YELLOW"
+    else
+        color="$CT_GREEN"
+    fi
+
+    printf "                 %s%d%%%s\n" "$color" "$int_pct" "$CT_RESET"
 }
-

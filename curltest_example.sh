@@ -2,57 +2,64 @@
 
 . ./curltest.sh
 
-#show_response=1
-show_request=1
+require_jq    # These tests assume jq is installed
 
-PORT=8086
-URL="http://localhost:${PORT}"
+#dotenv    # load .env
 
-# ---------------------------------------------------------
+PORT=${PORT:-8000}  # Use port 8000 unless PORT env var specified
 
-request_json "Posting new message" POST $URL/messages '{
-        "message": "something"
-    }' \
-    201 '{"id":".*","links":{"self":"/messages/.*"}}'
+default_content_type="application/json"
+default_base_url="http://localhost:$PORT"
 
-id=$(extract_field "id")
+#default_verbose=1
 
-printf "New message id was %s\n" "$id"
-printf "New message links %s\n" "$(extract_field 'links')"
+#########################################################################
+status "Testing Businesses"
 
-# ---------------------------------------------------------
+request "/businesses" \
+    -l "Searching for all businessess" \
+    --expect-code 200 \
+    --expect-response '{"businesses":[{"id":0,"ownerid":0,"name":"Block 15","address":"300 SW Jefferson Ave.","city":"Corvallis","state":"OR","zip":"97333","phone":"541-758-2077","category":"Restaurant","subcategory":"Brewpub","website":"http://block15.com"},{"id":1,"ownerid":1,"name":"Corvallis Brewing Supply","address":"119 SW 4th St.","city":"Corvallis","state":"OR","zip":"97333","phone":"541-758-1674","category":"Shopping","subcategory":"Brewing Supply","website":"http://www.lickspigot.com"},{"id":2,"ownerid":2,"name":"Robnett'\''s Hardware","address":"400 SW 2nd St.","city":"Corvallis","state":"OR","zip":"97333","phone":"541-753-5531","category":"Shopping","subcategory":"Hardware"},{"id":3,"ownerid":3,"name":"First Alternative Co-op North Store","address":"2855 NW Grant Ave.","city":"Corvallis","state":"OR","zip":"97330","phone":"541-452-3115","category":"Shopping","subcategory":"Groceries"},{"id":4,"ownerid":4,"name":"WinCo Foods","address":"2335 NW Kings Blvd.","city":"Corvallis","state":"OR","zip":"97330","phone":"541-753-7002","category":"Shopping","subcategory":"Groceries"},{"id":5,"ownerid":5,"name":"Fred Meyer","address":"777 NW Kings Blvd.","city":"Corvallis","state":"OR","zip":"97330","phone":"541-753-9116","category":"Shopping","subcategory":"Groceries"},{"id":6,"ownerid":6,"name":"Interzone","address":"1563 NW Monroe Ave.","city":"Corvallis","state":"OR","zip":"97330","phone":"541-754-5965","category":"Restaurant","subcategory":"Coffee Shop"},{"id":7,"ownerid":7,"name":"The Beanery Downtown","address":"500 SW 2nd St.","city":"Corvallis","state":"OR","zip":"97333","phone":"541-753-7442","category":"Restaurant","subcategory":"Coffee Shop"},{"id":8,"ownerid":8,"name":"Local Boyz","address":"1425 NW Monroe Ave.","city":"Corvallis","state":"OR","zip":"97330","phone":"541-754-5338","category":"Restaurant","subcategory":"Hawaiian"},{"id":9,"ownerid":9,"name":"Darkside Cinema","address":"215 SW 4th St.","city":"Corvallis","state":"OR","zip":"97333","phone":"541-752-4161","category":"Entertainment","subcategory":"Movie Theater","website":"http://darksidecinema.com"}],"pageNumber":1,"totalPages":"[ANY]","pageSize":10,"totalCount":"[ANY]","links":{"nextPage":"[REGEX]/businesses\\?page=.*","lastPage":"[REGEX]/businesses\\?page=.*"}}'
 
-for i in $(seq 2 5); do
-    request_json "Posting new message $i" POST $URL/messages '{
-            "message": "something'\''s message #'$i'"
-        }' \
-        201 '{"id":".*","links":{"self":"/messages/.*"}}'
-done
+request "/businesses/999" \
+    -l "Searching for non-existent business" \
+    --expect-code 404 \
+    --expect-response '{"error":"Requested resource /businesses/999 does not exist"}'
 
-# ---------------------------------------------------------
+request "/businesses" \
+    -l "Posting a new business" \
+    -p '{"ownerid":0,"name":"New business 1","address":"123 Sample Ave.","city":"Sample City","state":"OR","zip":"97333","phone":"541-758-9999","category":"Restaurant","subcategory":"Brewpub","website":"http://example.com/1"}' \
+    --expect-code 201 \
+    --expect-response '{"id":"[ANY]","links":{"business":"[REGEX]/businesses/.*"}}'
 
-request_json "Getting non-existent message" GET $URL/messages/999999999999999999999999 \
-    "" \
-    404 '{"error":"Message 999999999999999999999999 not found"}'
+id=$(extract_field id)
+info "Got ID $id"
 
-printf "HTTP status: %s\n" "$http_status"
-printf "Request: %s\n" "$request"
-printf "Response: %s\n" "$response"
+request "/businesses/$id" \
+    -l "Getting business $id" \
+    --expect-code 200 \
+    --expect-response '{"reviews":[],"photos":[],"ownerid":0,"name":"New business 1","address":"123 Sample Ave.","city":"Sample City","state":"OR","zip":"97333","phone":"541-758-9999","category":"Restaurant","subcategory":"Brewpub","website":"http://example.com/1","id":'$id'}'
 
-# ---------------------------------------------------------
+request "/businesses/$id" \
+    -l "Updating business $id name" \
+    -m "PUT" \
+    -p '{"ownerid":0,"name":"Renamed business 1","address":"123 Sample Ave.","city":"Sample City","state":"OR","zip":"97333","phone":"541-758-9999","category":"Restaurant","subcategory":"Brewpub","website":"http://example.com/1"}' \
+    --expect-code 200 \
+    --expect-response '{"links":{"business":"/businesses/'$id'"}}'
 
-request_json "Getting existent message" GET $URL/messages/$id "" \
-    200 '{"id":"'$id'","message":"something","links":{"self":"/messages/'$id'"}}'
+request "/businesses/$id" \
+    -l "Getting business $id to look for new name" \
+    --expect-code 200 \
+    --expect-response '{"reviews":[],"photos":[],"ownerid":0,"name":"Renamed business 1","address":"123 Sample Ave.","city":"Sample City","state":"OR","zip":"97333","phone":"541-758-9999","category":"Restaurant","subcategory":"Brewpub","website":"http://example.com/1","id":'$id'}'
 
-printf "message: %s\n" "$(jq_query .message)"
+request "/businesses/$id" \
+    -l "Deleting business $id" \
+    -m "DELETE" \
+    --expect-code 204
 
-# ---------------------------------------------------------
+request "/businesses/$id" \
+    -l "Verifying business $id deleted" \
+    --expect-code 404 \
+    --expect-response '{"error":"Requested resource /businesses/'$id' does not exist"}'
 
-request_json "Testing message contents (deliberate fail)" GET $URL/messages/$id "" \
-    999 '{"id":"'$id'","message":"BADNESS","links":{"self":"/messages/'$id'"}}'
-
-# ---------------------------------------------------------
-
-request_json "Getting all messages" GET $URL/messages "" \
-    200 '[{"id":".*","message":"something","links":{"self":"/messages/.*"}}]'
-
+summary

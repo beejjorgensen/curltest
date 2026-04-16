@@ -5,8 +5,6 @@ POSIX shell scripts for testing HTTP API endpoints with cURL.
 Installing [`jq`](https://jqlang.org/) is required to get testing to
 fully work. Standard packages exist for most Unices.
 
-**WIP.** You can use this, but you can't complain about it. 😊
-
 ## Warnings
 
 * The cURL command line uses `eval` due to its complexity. Don't trust user
@@ -30,53 +28,35 @@ Source it into your driver script.
 
 ## Functions
 
-### `request_json()`
+## `request`
 
-Perform a request with a JSON payload and expected response. Tests that
-the response is the same.
+This is the workhorse that you'll call to make requests and check
+responses.
 
-```
-request_json \
-    message \
-    method \
-    URL \
-    payload \
-    expected_code \
-    expected_response
-```
+See the Comparisons section, below to see how to match expected
+responses.
+
+Usage:
 
 ```
-request_json "Getting single user" \  # Message
-    GET \                             # Method
-    http://localhost/users/12 \       # URL
-    "" \                              # Payload (ignored for GET)
-    200 \                             # Expected status
-    '{"id":12, "name":"Athena"}'      # Expected response
+request [options] URL
 ```
 
-```
-request_json "Creating single user" \  # Message
-    POST \                             # Method
-    http://localhost/users \           # URL
-    '{"name": "Athena"}` \             # Payload
-    201 \                              # Expected status
-    '{"status": "ok"}'                 # Expected response
-```
+Options, both shorthand and long forms::
 
-### `request()`
-
-Generic interface for testing requests and responses
-
-```
-request "Posting non-json" \          # Message
-    POST                              # Method
-    http://localhost/whatever         # URL
-    "text/plain"                      # Content-Type
-    "Hey, this is some content"       # Payload
-    201                               # Expected status
-    "Ok, this is the reply"           # Expected response
-```
-
+* `-a --auth token`: specify an auth token
+* `-l --log message`: give a human-readable message to output for this
+  test
+* `-m --method method`: specify request verb (`GET`, `POST`, etc.)
+* `-c --content-type type`: give the request content type, e.g.
+  `application/json`.
+* `-p --payload`: Specify the message payload., probably JSON in single
+  quotes (`'{"foo": 12}'`)
+* `--expected-code`: Expected response HTTP code, e.g. 200, 404, etc.
+* `--expected-response`: Expected response, probably JSON in single
+  quotes.
+* `-v --verbose`: Output the request and response bodies.
+                fi
 ## `extract_field`
 
 Simple interface for trying to pull a field name out of the response.
@@ -85,13 +65,21 @@ Simple interface for trying to pull a field name out of the response.
 extract_field property
 ```
 
-```
-# response: {"id": 12, "name": "foo"}
+For example, for the response `{"id": 12, "name": "foo"}`, we can:
 
+```
 id_value=$(extract field "id")
 
 echo $id_value   # 12
 ```
+
+## `require_jq`
+
+If you call this, the script will only run if `jq` is installed.
+Non-trivial response matchers won't behave without it.
+
+It is recommended to install `jq` and call this at the beginning of your
+script.
 
 ## `jq_query`
 
@@ -126,44 +114,110 @@ jq_ppc '{
 
 ## Variables
 
-Getters:
+You can set the following variables to control the behavior of curltest.
 
-* `request`: contains the most recent request
-* `response`: contains the most recent response
-* `http_status`: contains the most recent HTTP response code
-
-Setters:
-
-* `show_request`: if non-zero, the request payload is printed with each
-  POST request.
-* `show_response`: if non-zero, the response payload is printed with
-  each request.
+* `default_content_type`: Content type for requests
+* `default_base_url`: Set a URL prefix for all requests, e.g.
+  `http://localhost:3490`.
+* `default_expected_code`: Expected response code for requests
+* `default_method`: Default verb, (`GET`, `POST`, etc.)
+* `default_verbose`: Set to 1 to make things more verbose
 
 ## Comparisons
 
-JSON comparisons are done with `jq`. This is the default for
-`request_json()` and when `request()` is called with content type
-`application/json`.
+If `jq` is installed, it is used for comparisons. Otherwise `diff` is
+used in a very naive way. Install `jq`. The rest of this section assumes
+you have done so.
 
-The order of the properties in the object doesn't matter.
+When matching against some expected JSON with `request
+--expected-response`:
 
-Regexes can be used in strings.
+* The order of the properties doesn't matter.
+* If the response has more properties than the expected response, they
+  are ignored. That is, only properties that exist in the expected
+  response are checked for correctness. That is, if the actual response
+  is a superset of the expected response, it will pass.
+  * An empty array in the expected response will match any array in the
+    actual response.
 
-Missing fields are ignored (i.e. expected results can be a subset of
-actual results and still pass).
+You can match against the string `"[ANY]"` on any property. This will
+cause the match to succeed no matter what is in the property.
 
-When matching arrays, all elements of the result array should match the
-pattern in the expected array. For example, this will match true if all
-elements in the response match the expected pattern:
+For example, `{"id":"[ANY]"}` will match all of these:
 
 ```
-[{"name": "foo.*"}]
+{"id": 12}
+{"id": "hey"}
+{"id": null}
+{"id": [1,2,3]}
+{"id": [1,{"foo":"bar"},3]}
 ```
 
-That is, it will succeed if the result is an array where all elements
-have a `name` property that starts with `foo`.
+but will not match:
+
+```
+{"foo":"bar"}
+```
+
+If the expected property begins with the prefix `[REGEX]`, the remainder
+will be matched as a regular expression.
+
+For example, `{"name": "[REGEX]Ab.*"}` will match all names starting
+with `Ab`: Abbey, Abbi, Abbie, Abbott, Abby, Abdul, Abdullah, Abe, Abel,
+Aberdeen, Abia, Abigail, Abijah, Abimael, Abiona, Abner, Abner, Abra,
+Abraham, Abram, Absalom, etc.
 
 ## Example Driver
 
 See [`curltest_example.sh`](curltest_example.sh)
 
+## Examples
+
+```
+default_base_url="http://localhost:3490"
+default_content_type='application/json'
+
+# Post a new business
+
+request "/businesses" \
+    -l "Posting a new business" \
+    -p '{
+          "ownerid": 0,
+          "name": "New business 1",
+          "address": "123 Sample Ave.",
+          "city": "Sample City",
+          "state": "OR",
+          "zip": "97333",
+          "phone": "541-758-9999",
+          "category": "Restaurant",
+          "subcategory": "Brewpub",
+          "website": "http://example.com/1"
+        }' \
+    --expect-code 201 \
+    --expect-response '{"id":"[ANY]","links":{"business":"[REGEX]/businesses/.*"}}'
+
+# Get the `id` field from the last response and store it in `id`
+
+id=$(extract_field id)
+
+# Do a `GET` request of that specific ID:
+# (note the `$id` in the request and `"id":'$id'` in the response)
+
+request "/businesses/$id" \
+    -l "Getting business $id" \
+    --expect-code 200 \
+    --expect-response '{
+                         "reviews": [],
+                         "photos": [],
+                         "ownerid": 0,
+                         "name":"New business 1", 
+                         "address":"123 Sample Ave.",
+                         "city":"Sample City",
+                         "state":"OR",
+                         "zip":"97333",
+                         "phone":"541-758-9999",
+                         "category":"Restaurant",
+                         "subcategory":"Brewpub",
+                         "website":"http://example.com/1",
+                         "id":'$id'
+                       }'
